@@ -81,7 +81,11 @@ try {
     $params = @{ Config = $configPath; SiteUrl = $site }
     if ($libs) { $params.Libraries = @($libs -split ',' | ForEach-Object { $_.Trim() } | Where-Object { $_ }) }
 
-    & (Join-Path $PSScriptRoot 'Invoke-SiteAudit.ps1') @params
+    $runFolder = & (Join-Path $PSScriptRoot 'Invoke-SiteAudit.ps1') @params | Select-Object -Last 1
+    if ($runFolder -and (Test-Path -LiteralPath $runFolder) -and $IsWindows) {
+        Write-Host ""
+        if (Read-YesNo "Open the results folder?") { Invoke-Item -LiteralPath $runFolder }
+    }
 }
 catch {
     Write-Host ""
