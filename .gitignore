@@ -1,0 +1,7 @@
+# Scan results contain tenant data. Never commit them.
+output/*
+!output/.gitkeep
+
+# Real client config files stay local. Only the example is committed.
+config/*.json
+!config/example.json
