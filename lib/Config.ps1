@@ -20,6 +20,8 @@ function Import-AuditConfig {
 
     # Defaults for anything optional. Values in the file win.
     $config = [ordered]@{
+        ClientName                      = $null
+        DefaultSiteUrl                  = $null
         TenantName                      = $null
         ClientId                        = $null
         SyncRootLength                  = 70
@@ -93,6 +95,11 @@ function Test-AuditConfig {
         $problems.Add("LargeFileSizeGB must be a positive number.")
     }
 
+    if ($Config.DefaultSiteUrl) {
+        try { $null = Test-SiteUrlMatchesTenant -SiteUrl $Config.DefaultSiteUrl -TenantName $Config.TenantName }
+        catch { $problems.Add("DefaultSiteUrl: $($_.Exception.Message)") }
+    }
+
     foreach ($pc in $Config.PcNames) {
         if ($pc -match '[<>]') { $problems.Add("PcNames still contains the placeholder '$pc'. Replace it with real PC names, or use [].") }
     }
@@ -120,4 +127,34 @@ function Test-SiteUrlMatchesTenant {
         Write-Warning "SiteUrl does not look like a /sites/ or /teams/ address. Continuing anyway."
     }
     $true
+}
+
+function Get-TenantFromSiteUrl {
+    # 'https://<tenant>.sharepoint.com/sites/<site>' -> '<tenant>'. Returns $null if it isn't a SharePoint Online address.
+    param([string] $SiteUrl)
+    $uri = $null
+    if ([uri]::TryCreate($SiteUrl.Trim(), [urikind]::Absolute, [ref]$uri) -and $uri.Host -match '^([a-zA-Z0-9-]+)\.sharepoint\.com$') {
+        return $Matches[1]
+    }
+    $null
+}
+
+function Get-SiteRootUrl {
+    # Trims a pasted browser address (e.g. ending in /Shared Documents/Forms/AllItems.aspx) back to the site.
+    param([string] $SiteUrl)
+    $uri = $null
+    if (-not [uri]::TryCreate($SiteUrl.Trim(), [urikind]::Absolute, [ref]$uri)) { return $SiteUrl.Trim() }
+    if ($uri.AbsolutePath -match '^/(sites|teams)/([^/]+)') {
+        return "https://$($uri.Host)/$($Matches[1])/$($Matches[2])"
+    }
+    "$($uri.Scheme)://$($uri.Host)"
+}
+
+function Save-AuditConfig {
+    # Writes a config object to a local JSON file. Local only, never touches SharePoint.
+    param(
+        [Parameter(Mandatory)] $Config,
+        [Parameter(Mandatory)] [string] $Path
+    )
+    $Config | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath $Path -Encoding utf8
 }

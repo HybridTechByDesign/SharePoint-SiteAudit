@@ -9,6 +9,10 @@
     This script never creates, moves, renames, deletes or changes permissions on anything in
     SharePoint. It only writes to the local .\output folder.
 
+.NOTES
+    Most people should use Start-SiteAudit.cmd (double-click) instead, which asks questions and
+    builds the config for you. This script is for running directly or from other scripts.
+
 .EXAMPLE
     .\Invoke-SiteAudit.ps1 -Config .\config\<client>.json -SiteUrl "https://<tenant>.sharepoint.com/sites/<site>"
 
@@ -21,7 +25,8 @@ param(
     [Parameter(Mandatory)] [string] $Config,
 
     # Full site address, e.g. https://<tenant>.sharepoint.com/sites/<site>
-    [Parameter(Mandatory)] [string] $SiteUrl,
+    # Optional if the config file has a DefaultSiteUrl.
+    [string] $SiteUrl,
 
     # Library titles or URL names to scan. Default: all visible document libraries.
     [string[]] $Libraries,
@@ -37,7 +42,9 @@ $ErrorActionPreference = 'Stop'
 . (Join-Path $PSScriptRoot 'lib\Connection.ps1')
 
 $cfg = Import-AuditConfig -Path $Config
-$SiteUrl = $SiteUrl.TrimEnd('/')
+if (-not $SiteUrl) { $SiteUrl = $cfg.DefaultSiteUrl }
+if (-not $SiteUrl) { throw "No site given. Use -SiteUrl, or run .\Start-SiteAudit.ps1 which remembers the site for you." }
+$SiteUrl = Get-SiteRootUrl $SiteUrl
 $null = Test-SiteUrlMatchesTenant -SiteUrl $SiteUrl -TenantName $cfg.TenantName
 
 Assert-PnPModule
@@ -52,7 +59,7 @@ try {
 
     Write-Host ""
     Write-Host "Document libraries to scan on '$($web.Title)':"
-    $libs | Format-Table Title, UrlName, ItemCount, RequireCheckOut, ContentApproval, OfflineSyncOff -AutoSize | Out-Host
+    $libs | Format-Table Title, UrlName, ItemCount, RequireCheckOut, ContentApproval, OfflineSyncOff -AutoSize | Out-String -Width 200 | Write-Host
 
     $total = ($libs | Measure-Object ItemCount -Sum).Sum
     Write-Host ("{0} libraries, {1:N0} items in total." -f $libs.Count, $total)
