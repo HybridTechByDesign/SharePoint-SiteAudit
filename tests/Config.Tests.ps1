@@ -80,9 +80,30 @@ Describe 'Site address helpers' {
         Get-TenantFromSiteUrl 'not a url' | Should -BeNullOrEmpty
     }
 
+    It 'accepts admin center and OneDrive addresses' {
+        Get-TenantFromSiteUrl 'https://exampletenant-admin.sharepoint.com/_layouts/15/online/AdminHome.aspx' | Should -Be 'exampletenant'
+        Get-TenantFromSiteUrl 'https://exampletenant-my.sharepoint.com/personal/someone' | Should -Be 'exampletenant'
+        Get-SiteRootUrl 'https://exampletenant-admin.sharepoint.com' | Should -Be 'https://exampletenant.sharepoint.com'
+    }
+
     It 'trims a pasted address back to the site' {
         Get-SiteRootUrl 'https://exampletenant.sharepoint.com/sites/finance/Shared%20Documents/Forms/AllItems.aspx' | Should -Be 'https://exampletenant.sharepoint.com/sites/finance'
         Get-SiteRootUrl 'https://exampletenant.sharepoint.com/teams/hr/' | Should -Be 'https://exampletenant.sharepoint.com/teams/hr'
+    }
+}
+
+Describe 'Sign-in tenant' {
+    It 'uses <tenant>.onmicrosoft.com when no TenantId is set' {
+        Get-SignInTenant (Import-AuditConfig -Path (New-TestConfig @{})) | Should -Be 'exampletenant.onmicrosoft.com'
+    }
+
+    It 'uses TenantId when the sign-in domain differs from the SharePoint name' {
+        Get-SignInTenant (Import-AuditConfig -Path (New-TestConfig @{ TenantId = 'otherorg.onmicrosoft.com' })) | Should -Be 'otherorg.onmicrosoft.com'
+    }
+
+    It 'accepts a tenant GUID and rejects junk' {
+        { Import-AuditConfig -Path (New-TestConfig @{ TenantId = '11111111-2222-3333-4444-555555555555' }) } | Should -Not -Throw
+        { Import-AuditConfig -Path (New-TestConfig @{ TenantId = 'not a domain' }) } | Should -Throw '*TenantId*'
     }
 }
 

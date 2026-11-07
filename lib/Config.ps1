@@ -23,6 +23,7 @@ function Import-AuditConfig {
         ClientName                      = $null
         DefaultSiteUrl                  = $null
         TenantName                      = $null
+        TenantId                        = $null
         ClientId                        = $null
         SyncRootLength                  = 70
         PcNames                         = @()
@@ -66,6 +67,10 @@ function Test-AuditConfig {
     }
     elseif ($Config.TenantName -notmatch '^[a-zA-Z0-9-]+$') {
         $problems.Add("TenantName '$($Config.TenantName)' should be just the tenant prefix (letters, numbers, dashes), not a URL.")
+    }
+
+    if ($Config.TenantId -and -not (Test-TenantIdFormat $Config.TenantId)) {
+        $problems.Add("TenantId '$($Config.TenantId)' should be the sign-in domain (e.g. <org>.onmicrosoft.com) or the tenant ID (a GUID).")
     }
 
     $guid = [guid]::Empty
@@ -123,20 +128,33 @@ function Test-SiteUrlMatchesTenant {
     if ($uri.Host -ne $expected) {
         throw "SiteUrl host '$($uri.Host)' does not match the config tenant ('$expected'). Check you picked the right config file."
     }
-    if ($uri.AbsolutePath -notmatch '^/(sites|teams)/[^/]+') {
-        Write-Warning "SiteUrl does not look like a /sites/ or /teams/ address. Continuing anyway."
-    }
     $true
 }
 
 function Get-TenantFromSiteUrl {
     # 'https://<tenant>.sharepoint.com/sites/<site>' -> '<tenant>'. Returns $null if it isn't a SharePoint Online address.
+    # Admin center and OneDrive addresses (<tenant>-admin / <tenant>-my) give the same '<tenant>'.
     param([string] $SiteUrl)
     $uri = $null
-    if ([uri]::TryCreate($SiteUrl.Trim(), [urikind]::Absolute, [ref]$uri) -and $uri.Host -match '^([a-zA-Z0-9-]+)\.sharepoint\.com$') {
-        return $Matches[1]
+    if ([uri]::TryCreate($SiteUrl.Trim(), [urikind]::Absolute, [ref]$uri) -and $uri.Host -match '^([a-zA-Z0-9-]+?)(-admin|-my)?\.sharepoint\.com$') {
+        return $Matches[1].ToLowerInvariant()
     }
     $null
+}
+
+function Test-TenantIdFormat {
+    # True for a tenant GUID or a domain like <org>.onmicrosoft.com / <org>.com.
+    param([string] $Value)
+    $g = [guid]::Empty
+    [guid]::TryParse($Value, [ref]$g) -or $Value -match '^[a-zA-Z0-9-]+(\.[a-zA-Z0-9-]+)+$'
+}
+
+function Get-SignInTenant {
+    # What to sign in to: TenantId from the config if set, otherwise the usual '<tenant>.onmicrosoft.com'.
+    # They differ when a tenant was renamed or set up with another domain (common for trial and demo tenants).
+    param([Parameter(Mandatory)] $Config)
+    if ($Config.TenantId) { return [string]$Config.TenantId }
+    "$($Config.TenantName).onmicrosoft.com"
 }
 
 function Get-SiteRootUrl {
@@ -144,10 +162,12 @@ function Get-SiteRootUrl {
     param([string] $SiteUrl)
     $uri = $null
     if (-not [uri]::TryCreate($SiteUrl.Trim(), [urikind]::Absolute, [ref]$uri)) { return $SiteUrl.Trim() }
+    # An admin center or OneDrive address is turned into the tenant's main SharePoint address.
+    $hostName = $uri.Host -replace '-(admin|my)\.sharepoint\.com$', '.sharepoint.com'
     if ($uri.AbsolutePath -match '^/(sites|teams)/([^/]+)') {
-        return "https://$($uri.Host)/$($Matches[1])/$($Matches[2])"
+        return "https://$hostName/$($Matches[1])/$($Matches[2])"
     }
-    "$($uri.Scheme)://$($uri.Host)"
+    "$($uri.Scheme)://$hostName"
 }
 
 function Save-AuditConfig {

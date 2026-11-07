@@ -61,13 +61,13 @@ function Get-SafeFileName([string] $Name) {
 
 function Register-AuditApp {
     # Registers the read-only app in the tenant and returns its client ID, or $null if it didn't work.
-    param([Parameter(Mandatory)] [string] $TenantName)
+    param([Parameter(Mandatory)] [string] $SignInTenant)
 
     Write-Hint "A browser window will open. Sign in as a Global Admin (or Application Admin) of this tenant"
     Write-Hint "and click Accept. The app only gets permission to READ SharePoint sites."
     try {
         $output = Register-PnPEntraIDAppForInteractiveLogin -ApplicationName $script:AppName `
-            -Tenant "$TenantName.onmicrosoft.com" -SharePointDelegatePermissions 'AllSites.Read' -ErrorAction Stop
+            -Tenant $SignInTenant -SharePointDelegatePermissions 'AllSites.Read' -ErrorAction Stop
         $record = $output | Where-Object { $_ -isnot [string] -and $_.PSObject.Properties['AzureAppId/ClientId'] } | Select-Object -First 1
         if ($record) { return [string]$record.'AzureAppId/ClientId' }
         # Fall back to the text line "... -ClientId <guid>"
@@ -77,6 +77,20 @@ function Register-AuditApp {
     catch {
         Write-Host "  App registration did not finish: $($_.Exception.Message)" -ForegroundColor Yellow
     }
+    $null
+}
+
+function Find-TenantId {
+    # Asks SharePoint which tenant it belongs to. SharePoint answers an empty sign-in request with
+    # the tenant ID (the 'realm'). Nothing is signed in and nothing is changed. Returns $null on failure.
+    param([Parameter(Mandatory)] [string] $TenantName)
+    try {
+        $response = Invoke-WebRequest -Uri "https://$TenantName.sharepoint.com/_vti_bin/client.svc" -Method Get `
+            -Headers @{ Authorization = 'Bearer' } -SkipHttpErrorCheck -TimeoutSec 15 -ErrorAction Stop
+        $header = @($response.Headers['WWW-Authenticate']) -join ' '
+        if ($header -match 'realm="([0-9a-fA-F-]{36})"') { return $Matches[1] }
+    }
+    catch { }
     $null
 }
 
@@ -116,7 +130,26 @@ function Invoke-ClientSetup {
         Write-Host "  That doesn't look like a SharePoint Online address (https://<tenant>.sharepoint.com/sites/<site>)." -ForegroundColor Yellow
     }
     $siteUrl = Get-SiteRootUrl $pasted
-    Write-Hint "Site: $siteUrl   Tenant: $tenant"
+    if ($pasted -match '-admin\.sharepoint\.com') {
+        Write-Hint "That's the admin center, so I'll use the main site $siteUrl. You can pick another site before each scan."
+    }
+    Write-Hint "Site: $siteUrl"
+
+    # The sign-in tenant can have a different name from the SharePoint address
+    # (e.g. SharePoint '<tenant>' but sign-in domain '<org>.onmicrosoft.com'). Look it up instead of guessing.
+    $signInTenant = Find-TenantId -TenantName $tenant
+    if ($signInTenant) {
+        Write-Hint "Found this tenant's ID: $signInTenant"
+    }
+    else {
+        Write-Hint "Couldn't look up the tenant automatically."
+        Write-Hint "Type the domain you sign in to Microsoft 365 with, e.g. <org>.onmicrosoft.com (the part after @ in an admin account)."
+        while ($true) {
+            $signInTenant = Read-Answer "  Sign-in domain" "$tenant.onmicrosoft.com"
+            if (Test-TenantIdFormat $signInTenant) { break }
+            Write-Host "  That doesn't look like a domain." -ForegroundColor Yellow
+        }
+    }
 
     # 3. App registration
     Write-Step "3 of 5  Sign-in app for this tenant"
@@ -127,7 +160,7 @@ function Invoke-ClientSetup {
         $clientId = Read-ClientId
     }
     elseif (Read-YesNo "  Set it up now? (needs a tenant admin account)") {
-        $clientId = Register-AuditApp -TenantName $tenant
+        $clientId = Register-AuditApp -SignInTenant $signInTenant
         if ($clientId) {
             Write-Host "  App created. ID: $clientId" -ForegroundColor Green
         }
@@ -159,6 +192,7 @@ function Invoke-ClientSetup {
         ClientName                      = $clientName
         DefaultSiteUrl                  = $siteUrl
         TenantName                      = $tenant
+        TenantId                        = $signInTenant
         ClientId                        = $clientId
         SyncRootLength                  = $syncLength
         PcNames                         = $pcNames

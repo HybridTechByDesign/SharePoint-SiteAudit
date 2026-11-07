@@ -30,7 +30,7 @@ function Connect-AuditSite {
     )
 
     Write-Host "Signing in to $SiteUrl (a browser window will open)..."
-    Connect-PnPOnline -Url $SiteUrl -ClientId $Config.ClientId -Tenant "$($Config.TenantName).onmicrosoft.com" -Interactive -ErrorAction Stop
+    Connect-PnPOnline -Url $SiteUrl -ClientId $Config.ClientId -Tenant (Get-SignInTenant $Config) -Interactive -ErrorAction Stop
     $web = Get-PnPWeb -Includes Title, Url, ServerRelativeUrl -ErrorAction Stop
     Write-Host "Connected to '$($web.Title)'."
     $web

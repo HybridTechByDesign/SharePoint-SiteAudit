@@ -17,7 +17,8 @@ The audit never creates, moves, renames, deletes or changes permissions on anyth
    | Question | What to do |
    |---|---|
    | Client name | Any label, e.g. `<Client A>` |
-   | Site address | Open the site in your browser and paste the address bar. Any page of the site works. |
+   | Site address | Open the site in your browser and paste the address bar. Any page of the site works, and so does the admin center address. |
+   | Sign-in tenant | Usually found automatically. If not, type the domain you sign in with, e.g. `<org>.onmicrosoft.com`. This can differ from the SharePoint address, which is common for trial and demo tenants. |
    | Sign-in app | Say **N** the first time for a tenant, then **Y** to set it up. A browser opens: sign in as a tenant admin and click Accept. The app can only read. |
    | Synced folder (optional) | On a team member's PC, copy the address bar of the synced library in File Explorer. Press Enter to skip. |
    | PC names (optional) | The team's PC names, separated by commas. Press Enter to skip. |
@@ -46,6 +47,7 @@ Run setup again with the same client name and say yes to replace it. Or open
 
 | Setting | Meaning |
 |---|---|
+| `TenantId` | The sign-in domain or tenant ID, when it differs from the SharePoint name |
 | `Thresholds` | Path length limits (Warn 200, Excel 218, Windows 260, SharePoint 400). Leave as is. |
 | `MaxRecommendedDepthBelowSection` | Folder levels allowed below the section folder (default 3) |
 | `LargeFileSizeGB` | Files above this size are flagged (default 2) |
