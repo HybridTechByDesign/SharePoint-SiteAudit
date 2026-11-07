@@ -1,0 +1,9 @@
+{
+  "TenantName": "<tenant>",
+  "ClientId": "<entra-app-id>",
+  "SyncRootLength": 70,
+  "PcNames": ["<PC-01>", "<PC-02>"],
+  "Thresholds": { "Warn": 200, "Excel": 218, "Windows": 260, "SharePoint": 400 },
+  "MaxRecommendedDepthBelowSection": 3,
+  "LargeFileSizeGB": 2
+}
