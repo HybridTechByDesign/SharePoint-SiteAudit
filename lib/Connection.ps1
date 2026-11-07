@@ -30,10 +30,41 @@ function Connect-AuditSite {
     )
 
     Write-Host "Signing in to $SiteUrl (a browser window will open)..."
-    Connect-PnPOnline -Url $SiteUrl -ClientId $Config.ClientId -Tenant (Get-SignInTenant $Config) -Interactive -ErrorAction Stop
-    $web = Get-PnPWeb -Includes Title, Url, ServerRelativeUrl -ErrorAction Stop
+    Connect-PnPOnline -Url $SiteUrl -ClientId $Config.ClientId -Tenant (Get-SignInTenant $Config) -Interactive -ForceAuthentication -ErrorAction Stop
+    try {
+        $web = Get-PnPWeb -Includes Title, Url, ServerRelativeUrl -ErrorAction Stop
+    }
+    catch {
+        throw (Get-AccessHelp -Step 'open this site' -ErrorRecord $_)
+    }
     Write-Host "Connected to '$($web.Title)'."
     $web
+}
+
+$script:UnreadableSettings = @{}
+
+function Format-Setting($Value) {
+    if ($null -eq $Value) { return 'unknown' }
+    if ($Value) { 'Yes' } else { 'No' }
+}
+
+function Get-AccessHelp {
+    # Turns an "access denied" from SharePoint into plain steps to check.
+    param([string] $Step, $ErrorRecord)
+    $message = $ErrorRecord.Exception.Message
+    if ($message -notmatch 'denied|unauthori[sz]ed|forbidden|401|403') {
+        return "Couldn't $Step. $message"
+    }
+    @"
+Signed in, but SharePoint refused to $Step ("$message").
+Check these, in order:
+  1. Your account can open this site in the browser. Being a tenant or SharePoint admin is NOT enough:
+     you must be a member or owner of the site (or a site collection admin).
+  2. The sign-in app has admin consent: Entra admin center > App registrations >
+     'SharePoint Site Audit (read-only)' > API permissions. 'SharePoint - AllSites.Read' must show
+     'Granted for <org>'. If not, click 'Grant admin consent'.
+  3. You signed in with the right account. To force a fresh sign-in, close this window and run it again.
+"@
 }
 
 function Get-AuditLibraries {
@@ -44,22 +75,45 @@ function Get-AuditLibraries {
         [string[]] $Libraries
     )
 
-    $lists = Get-PnPList -Includes RootFolder, ItemCount, Hidden, BaseTemplate, IsCatalog, IsSystemList, ForceCheckout, EnableModeration, ExcludeFromOfflineClient -ErrorAction Stop
-    # BaseTemplate 101 = document library. Hidden and system libraries are skipped.
-    $docLibs = $lists | Where-Object { $_.BaseTemplate -eq 101 -and -not $_.Hidden -and -not $_.IsCatalog -and -not $_.IsSystemList }
+    # Step 1: the basic list of lists. If even this is denied, it's a permissions problem.
+    try {
+        $lists = Get-PnPList -Includes ItemCount -ErrorAction Stop
+    }
+    catch {
+        throw (Get-AccessHelp -Step 'read the list of libraries on this site' -ErrorRecord $_)
+    }
+
+    # BaseTemplate 101 = document library. Hidden libraries are skipped.
+    $docLibs = @($lists | Where-Object { $_.BaseTemplate -eq 101 -and -not $_.Hidden })
 
     $result = foreach ($lib in $docLibs) {
+        # Step 2: settings that affect sync. Some of these can be refused with read-only access,
+        # so each one is read on its own and shown as unknown if refused, instead of stopping the run.
+        $settings = @{}
+        foreach ($prop in 'IsCatalog', 'IsSystemList', 'ForceCheckout', 'EnableModeration', 'ExcludeFromOfflineClient') {
+            try { $settings[$prop] = Get-PnPProperty -ClientObject $lib -Property $prop -ErrorAction Stop }
+            catch {
+                $settings[$prop] = $null
+                Write-Verbose "Couldn't read '$prop' on library '$($lib.Title)': $($_.Exception.Message)"
+                $script:UnreadableSettings[$prop] = $true
+            }
+        }
+        if ($settings.IsCatalog -or $settings.IsSystemList) { continue }
+
         $rootUrl = $lib.RootFolder.ServerRelativeUrl
         [pscustomobject]@{
             Title             = $lib.Title
             UrlName           = ($rootUrl -split '/')[-1]
             ServerRelativeUrl = $rootUrl
             ItemCount         = $lib.ItemCount
-            RequireCheckOut   = [bool]$lib.ForceCheckout
-            ContentApproval   = [bool]$lib.EnableModeration
-            OfflineSyncOff    = [bool]$lib.ExcludeFromOfflineClient
+            RequireCheckOut   = Format-Setting $settings.ForceCheckout
+            ContentApproval   = Format-Setting $settings.EnableModeration
+            OfflineSyncOff    = Format-Setting $settings.ExcludeFromOfflineClient
             Id                = $lib.Id
         }
+    }
+    if ($script:UnreadableSettings.Count) {
+        Write-Warning ("Some library settings couldn't be read with read-only access and show as 'unknown': {0}." -f (($script:UnreadableSettings.Keys | Sort-Object) -join ', '))
     }
 
     if ($Libraries) {
