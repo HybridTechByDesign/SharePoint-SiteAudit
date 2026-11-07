@@ -4,7 +4,7 @@ A read-only PowerShell tool that scans one SharePoint Online site and shows, in 
 where folder structures have become too deep and what to move. See [CLAUDE.md](CLAUDE.md) for the
 full brief.
 
-**Status:** phase 1 of 7 (sign-in, setup, list libraries). Scanning and the report come next.
+**Status:** phase 2 of 7. It signs in, reads every file and folder, and writes a CSV with path lengths. The checks, grouping and the team report come next.
 
 The audit never creates, moves, renames, deletes or changes permissions on anything in SharePoint.
 
@@ -29,6 +29,26 @@ If the PnP.PowerShell module is missing, the tool offers to install it for you (
 
 Everything you enter is saved in the `config` folder on your PC. Those files are never committed to
 git, so client details stay local.
+
+## What you get
+
+Each run creates a folder `output\<site>_<yyyyMMdd-HHmm>\` with:
+
+- `AllFindings.csv`: one row per file and folder (for IT, opens in Excel). The main columns:
+
+  | Column | Meaning |
+  |---|---|
+  | `PathInLibrary` | Where the item sits inside the library |
+  | `LocalPathLength` | Estimated path length on a synced PC (sync folder + path). Excel fails above 218, most Windows apps above 260 |
+  | `ServerPathLength` | Length of the SharePoint path. SharePoint and OneDrive refuse paths above 400 |
+  | `FolderDepth` | How many folders deep the item is inside the library |
+  | `SizeBytes`, `Created`, `CreatedBy`, `Modified`, `ModifiedBy` | As shown in SharePoint |
+  | `DirectChildren` | For folders: how many files and folders sit directly inside |
+
+- `run-info.json`: when the scan ran, and the totals per library.
+
+Big libraries are read 2,000 items at a time, so libraries well above 5,000 items work. If SharePoint
+asks the tool to slow down, it waits and tries again on its own.
 
 ## Running it from a PowerShell window
 
