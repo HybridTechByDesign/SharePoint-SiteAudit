@@ -69,3 +69,35 @@ Describe 'Test-SiteUrlMatchesTenant' {
         { Test-SiteUrlMatchesTenant -SiteUrl 'http://exampletenant.sharepoint.com/sites/finance' -TenantName 'exampletenant' } | Should -Throw '*https*'
     }
 }
+
+Describe 'Site address helpers' {
+    It 'gets the tenant from a pasted browser address' {
+        Get-TenantFromSiteUrl 'https://exampletenant.sharepoint.com/sites/finance/Shared%20Documents/Forms/AllItems.aspx' | Should -Be 'exampletenant'
+    }
+
+    It 'returns nothing for a non-SharePoint address' {
+        Get-TenantFromSiteUrl 'https://example.com/sites/finance' | Should -BeNullOrEmpty
+        Get-TenantFromSiteUrl 'not a url' | Should -BeNullOrEmpty
+    }
+
+    It 'trims a pasted address back to the site' {
+        Get-SiteRootUrl 'https://exampletenant.sharepoint.com/sites/finance/Shared%20Documents/Forms/AllItems.aspx' | Should -Be 'https://exampletenant.sharepoint.com/sites/finance'
+        Get-SiteRootUrl 'https://exampletenant.sharepoint.com/teams/hr/' | Should -Be 'https://exampletenant.sharepoint.com/teams/hr'
+    }
+}
+
+Describe 'Save-AuditConfig' {
+    It 'writes a file that loads back the same' {
+        $cfg = Import-AuditConfig -Path (New-TestConfig @{ ClientName = '<Client A>'; DefaultSiteUrl = 'https://exampletenant.sharepoint.com/sites/finance'; PcNames = @('PC-01') })
+        $path = Join-Path $TestDrive 'saved.json'
+        Save-AuditConfig -Config $cfg -Path $path
+        $again = Import-AuditConfig -Path $path
+        $again.DefaultSiteUrl | Should -Be 'https://exampletenant.sharepoint.com/sites/finance'
+        @($again.PcNames) | Should -Be @('PC-01')
+        $again.Thresholds.Excel | Should -Be 218
+    }
+
+    It 'rejects a remembered site from another tenant' {
+        { Import-AuditConfig -Path (New-TestConfig @{ DefaultSiteUrl = 'https://othertenant.sharepoint.com/sites/x' }) } | Should -Throw '*DefaultSiteUrl*'
+    }
+}

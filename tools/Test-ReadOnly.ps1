@@ -13,7 +13,7 @@ param(
     [string] $Root = (Split-Path $PSScriptRoot -Parent)
 )
 
-$files = @(Get-Item (Join-Path $Root 'Invoke-SiteAudit.ps1')) + @(Get-ChildItem (Join-Path $Root 'lib') -Filter *.ps1 -Recurse)
+$files = @(Get-Item (Join-Path $Root 'Invoke-SiteAudit.ps1'), (Join-Path $Root 'Start-SiteAudit.ps1')) + @(Get-ChildItem (Join-Path $Root 'lib') -Filter *.ps1 -Recurse)
 
 # Write verbs. Matched as whole cmdlet names, e.g. "Set-PnPListItem".
 $pattern = '(Set|Remove|Move|Add|New|Rename|Copy|Clear|Grant|Revoke|Publish|Submit|Restore|Update|Unpublish|Approve|Deny)-[A-Za-z]+'

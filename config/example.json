@@ -1,4 +1,6 @@
 {
+  "ClientName": "<Client A>",
+  "DefaultSiteUrl": "https://<tenant>.sharepoint.com/sites/<site>",
   "TenantName": "<tenant>",
   "ClientId": "<entra-app-id>",
   "SyncRootLength": 70,
