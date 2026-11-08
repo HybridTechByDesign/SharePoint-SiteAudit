@@ -1,4 +1,4 @@
-# Checks run on the scan results (AllFindings.csv). Local only: nothing here talks to SharePoint.
+# Checks run on the scan results (AllFindings.csv), plus the grouping into problem areas (Grouping.ps1). Local only: nothing here talks to SharePoint.
 #
 # The raw scan is read twice, row by row, so memory stays low on big sites:
 #   pass 1 counts things that need the whole site (duplicates, bulk copy-ins, folder sizes)
@@ -114,6 +114,10 @@ function Invoke-AuditChecks {
     $folderInfo = [System.Collections.Generic.Dictionary[string, string]]::new()   # folder key -> "day|person"
     $tally = [System.Collections.Generic.Dictionary[string, int]]::new()           # "folder key|day|person" -> items
     $subtree = [System.Collections.Generic.Dictionary[string, int]]::new()         # folder key -> items below
+    $redFiles = [System.Collections.Generic.List[object]]::new()                    # files over the Excel limit, for grouping
+    $barStats = @{}; $childStats = @{}                                              # chart totals
+    $th = $Config.Thresholds
+    $libraries = [System.Collections.Generic.HashSet[string]]::new()
 
     # ---- Pass 1: counts that need the whole site ----
     Import-Csv -LiteralPath $RawCsv | ForEach-Object {
@@ -123,10 +127,19 @@ function Invoke-AuditChecks {
         if ($isFolder) {
             $folderInfo[$_.Library + '|' + $_.PathInLibrary] = $stamp
         }
-        elseif ([long]$_.SizeBytes -gt 0) {
-            $key = $_.Name.ToLowerInvariant() + '|' + $_.SizeBytes
-            $dupCount[$key] = 1 + $(if ($dupCount.ContainsKey($key)) { $dupCount[$key] } else { 0 })
+        else {
+            if ([long]$_.SizeBytes -gt 0) {
+                $key = $_.Name.ToLowerInvariant() + '|' + $_.SizeBytes
+                $dupCount[$key] = 1 + $(if ($dupCount.ContainsKey($key)) { $dupCount[$key] } else { 0 })
+            }
+            $level = Get-PathLevel ([int]$_.LocalPathLength) ([int]$_.ServerPathLength) $th
+            $over = $level -in 'Red', 'DarkRed', 'Blocked'
+            if ($over) {
+                $redFiles.Add([pscustomobject]@{ Library = $_.Library; PathInLibrary = $_.PathInLibrary; LocalPathLength = [int]$_.LocalPathLength; Level = $level })
+            }
+            Measure-BarStat $barStats $childStats $_.Library $_.PathInLibrary ([int]$_.LocalPathLength) $over ([int]$Config.ChartFolderLevel)
         }
+        $null = $libraries.Add($_.Library)
         foreach ($a in (Get-AncestorKeys $_.Library $_.PathInLibrary)) {
             $subtree[$a] = 1 + $(if ($subtree.ContainsKey($a)) { $subtree[$a] } else { 0 })
             $t = "$a|$stamp"
@@ -147,6 +160,15 @@ function Invoke-AuditChecks {
         if (-not ($bulk.ContainsKey($parent) -and $bulk[$parent] -eq $bulk[$f])) { $topBulk[$f] = $bulk[$f] }
     }
 
+    # Problem areas: group over-limit files by break point.
+    $areas = Get-ProblemAreas -RedFiles $redFiles -FixedLevels ([int]$Config.FixedFolderLevels) -ExcelLimit ([int]$th.Excel)
+    $areaOf = [System.Collections.Generic.Dictionary[string, string]]::new()
+    foreach ($a in $areas) {
+        $label = if ($a.BreakPoint) { $a.BreakPoint } else { '(top of library)' }
+        foreach ($m in $a.Members) { $areaOf[$m] = $label }
+    }
+    $bars = Get-FolderBars -BarStats $barStats -ChildStats $childStats -ShowLibrary ($libraries.Count -gt 1)
+
     # ---- Pass 2: add columns and write ----
     $counts = [ordered]@{
         Items = 0; Files = 0; Folders = 0
@@ -154,8 +176,8 @@ function Invoke-AuditChecks {
         OverExcel = 0; NameTooLong = 0; RepeatedFolder = 0; ConflictCopy = 0; LikelyDuplicate = 0
         BadName = 0; Junk = 0; LargeFile = 0; BulkCopyFolders = $topBulk.Count; TooManyChildren = 0
         HugeSubtree = 0; CheckedOut = 0; UniquePermissions = 0; DeepestFolderDepth = 0; LongestLocalPath = 0
+        ProblemAreas = @($areas).Count
     }
-    $th = $Config.Thresholds
 
     Import-Csv -LiteralPath $RawCsv | ForEach-Object {
         $row = $_
@@ -240,11 +262,12 @@ function Invoke-AuditChecks {
                 TooManyInFolder   = $tooMany
                 HugeSubtree       = $huge
                 UniquePermissions = $unique
+                ProblemArea       = $(if (-not $isFolder -and $areaOf.ContainsKey($selfKey)) { $areaOf[$selfKey] } else { '' })
             }) -PassThru
     } | Export-Csv -LiteralPath $OutCsv -NoTypeInformation -Encoding utf8BOM
 
     $counts['BulkCopyFolderList'] = @($topBulk.Keys | ForEach-Object { $_.Substring($_.IndexOf('|') + 1) } | Sort-Object)
-    [pscustomobject]$counts
+    [pscustomobject]@{ Counts = [pscustomobject]$counts; Areas = $areas; Bars = $bars }
 }
 
 function Get-LibraryFindings {

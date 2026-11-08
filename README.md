@@ -4,7 +4,7 @@ A read-only PowerShell tool that scans one SharePoint Online site and shows, in 
 where folder structures have become too deep and what to move. See [CLAUDE.md](CLAUDE.md) for the
 full brief.
 
-**Status:** phase 3 of 7. It signs in, reads every file and folder, runs the checks, and writes a CSV for IT. Grouping the problems and the report for the team come next.
+**Status:** phase 4 of 7. It signs in, reads every file and folder, runs the checks, groups the problem files into a few places to fix, and writes the data for the report. The HTML report for the team comes next.
 
 The audit never creates, moves, renames, deletes or changes permissions on anything in SharePoint.
 
@@ -63,12 +63,31 @@ Each run creates a folder `output\<site>_<yyyyMMdd-HHmm>\` with:
   | `SubtreeItems` | For folders: all items below it |
   | `TooManyInFolder` / `HugeSubtree` | Folder has over 5,000 items directly inside / over 100,000 below it |
   | `UniquePermissions` | The item has its own permissions instead of inheriting them |
+  | `ProblemArea` | For files over the Excel limit: the break point folder this file is grouped under (see below) |
 
 - `run-info.json`: when the scan ran, the totals for each check, and per library: item count against
   the 300,000 sync limit, settings that break sync (Require Check Out, content approval, offline sync
   off, required columns), checked-out files, and items with their own permissions.
 
-At the end of a run, a short summary of what was found is shown on screen.
+- `ProblemAreas.csv`: every problem area, biggest first (see below).
+- `summary.json`: the numbers the team report is built from: the headline sentence, the four tiles,
+  the top 5 problem areas, the bar chart data and the other findings. Names of people are not in it.
+
+At the end of a run, the headline and the top 5 places to fix are shown on screen.
+
+### Problem areas (how files are grouped)
+
+The team doesn't get a list of every long path. Files over the Excel limit are grouped by their
+**break point**: the first folder below the fixed structure (Section / Year / Client / Topic), which
+is usually where a copied-in folder tree starts. For each area you get:
+
+- how many files are affected, the deepest path, and how many extra folder levels sit inside it
+- the fix: *move the contents of the break point up into its parent*, how many characters that
+  saves, and how many files drop back under the Excel limit
+- if that isn't enough: *bring the files up out of the extra folder levels*, and how many files
+  that fixes
+
+Areas are ranked by files affected. The report shows the top 5; all of them are in `ProblemAreas.csv`.
 
 Big libraries are read 2,000 items at a time, so libraries well above 5,000 items work. If SharePoint
 asks the tool to slow down, it waits and tries again on its own.
@@ -94,6 +113,8 @@ Run setup again with the same client name and say yes to replace it. Or open
 | `Thresholds` | Path length limits (Warn 200, Excel 218, Windows 260, SharePoint 400). Leave as is. |
 | `MaxRecommendedDepthBelowSection` | Folder levels allowed below the section folder (default 3) |
 | `LargeFileSizeGB` | Files above this size are flagged (default 2) |
+| `FixedFolderLevels` | How many folder levels make up the fixed structure (default 4: Section / Year / Client / Topic). Break points are looked for below this. For a test folder at the top of a library, set it to 1 |
+| `ChartFolderLevel` | Which folder level gets one bar in the report chart (default 3: the client folder) |
 
 ## One-time app setup (manual way)
 
