@@ -113,7 +113,7 @@ Run setup again with the same client name and say yes to replace it. Or open
 | `Thresholds` | Path length limits (Warn 200, Excel 218, Windows 260, SharePoint 400). Leave as is. |
 | `MaxRecommendedDepthBelowSection` | Folder levels allowed below the section folder (default 3) |
 | `LargeFileSizeGB` | Files above this size are flagged (default 2) |
-| `FixedFolderLevels` | How many folder levels make up the fixed structure (default 4: Section / Year / Client / Topic). Break points are looked for below this. For a test folder at the top of a library, set it to 1 |
+| `FixedFolderLevels` | How many folder levels make up the fixed structure (default 4: Section / Year / Client / Topic). Break points are looked for below this. If the usual structure sits inside an extra test folder at the top of the library, add 1 (e.g. 5) |
 | `ChartFolderLevel` | Which folder level gets one bar in the report chart (default 3: the client folder) |
 
 ## One-time app setup (manual way)

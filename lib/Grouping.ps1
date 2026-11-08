@@ -61,11 +61,11 @@ function Get-ProblemAreas {
         $members = $groups[$key]
         $library = $key.Substring(0, $key.IndexOf('|'))
         $depth = $members[0].MinDepth
-        $segments = if ($depth -gt 0) { @($members[0].Folders[0..($depth - 1)]) } else { @() }
+        $segments = @(if ($depth -gt 0) { $members[0].Folders[0..($depth - 1)] })
         $breakPoint = $segments -join '/'
         $name = if ($segments.Count) { $segments[-1] } else { '' }
-        $parentSegments = if ($segments.Count -gt 1) { @($segments[0..($segments.Count - 2)]) } else { @() }
-        $parentName = if ($parentSegments.Count) { $parentSegments[-1] } else { "the top of the '$library' library" }
+        $parentSegments = @(if ($segments.Count -gt 1) { $segments[0..($segments.Count - 2)] })
+        $parentName = if ($parentSegments.Count) { "'$($parentSegments[-1])'" } else { "the top of the '$library' library" }
 
         $files = @($members | ForEach-Object { $_.File })
         $saved = if ($name) { $name.Length + 1 } else { 0 }
@@ -82,7 +82,7 @@ function Get-ProblemAreas {
         }
 
         $fix = if ($name) {
-            "Move the contents of '$name' up into '$parentName'"
+            "Move the contents of '$name' up into $parentName"
         }
         else {
             "Shorten these file names"
