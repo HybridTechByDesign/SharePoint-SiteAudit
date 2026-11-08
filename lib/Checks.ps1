@@ -135,7 +135,7 @@ function Invoke-AuditChecks {
             $level = Get-PathLevel ([int]$_.LocalPathLength) ([int]$_.ServerPathLength) $th
             $over = $level -in 'Red', 'DarkRed', 'Blocked'
             if ($over) {
-                $redFiles.Add([pscustomobject]@{ Library = $_.Library; PathInLibrary = $_.PathInLibrary; LocalPathLength = [int]$_.LocalPathLength; Level = $level })
+                $redFiles.Add([pscustomobject]@{ Library = $_.Library; PathInLibrary = $_.PathInLibrary; LocalPathLength = [int]$_.LocalPathLength; Level = $level; CreatedOn = $day; CreatedBy = $_.CreatedBy })
             }
             Measure-BarStat $barStats $childStats $_.Library $_.PathInLibrary ([int]$_.LocalPathLength) $over ([int]$Config.ChartFolderLevel)
         }

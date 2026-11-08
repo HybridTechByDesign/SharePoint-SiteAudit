@@ -81,6 +81,10 @@ function Get-ProblemAreas {
             if (([int]$m.File.LocalPathLength - $inner) -le $ExcelLimit) { $fixedFlat++ }
         }
 
+        # When the files arrived, and who added most of them (names are only shown with -ShowNames).
+        $whenGroup = $files | Where-Object { $_.PSObject.Properties['CreatedOn'] -and $_.CreatedOn } | Group-Object CreatedOn | Sort-Object Count -Descending | Select-Object -First 1
+        $whoGroup = $files | Where-Object { $_.PSObject.Properties['CreatedBy'] -and $_.CreatedBy } | Group-Object CreatedBy | Sort-Object Count -Descending | Select-Object -First 1
+
         $fix = if ($name) {
             "Move the contents of '$name' up into $parentName"
         }
@@ -104,8 +108,10 @@ function Get-ProblemAreas {
             CharactersSaved    = $saved
             FixedByMove        = $fixedAfter
             StillTooLong       = $files.Count - $fixedAfter
-            FlattenFix         = $(if ($maxDepth -gt $segments.Count) { "Bring the files up out of the $([Math]::Max(0, $maxDepth - $segments.Count)) folder level(s) inside '$name'" } else { '' })
+            FlattenFix         = $(if ($maxDepth -gt $segments.Count) { $n = $maxDepth - $segments.Count; "Bring the files up out of the $n folder $(if ($n -eq 1) { 'level' } else { 'levels' }) inside '$name'" } else { '' })
             FixedByFlatten     = $fixedFlat
+            AddedOn            = $(if ($whenGroup) { $whenGroup.Name } else { '' })
+            AddedBy            = $(if ($whoGroup) { $whoGroup.Name } else { '' })
             # "Library|PathInLibrary" of each file in the area. Used to fill the CSV, not shown in the report.
             Members            = @($files | ForEach-Object { "$($_.Library)|$($_.PathInLibrary)" })
         }
