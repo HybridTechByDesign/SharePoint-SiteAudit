@@ -46,6 +46,7 @@ $ErrorActionPreference = 'Stop'
 . (Join-Path $PSScriptRoot 'lib\Connection.ps1')
 . (Join-Path $PSScriptRoot 'lib\Scanner.ps1')
 . (Join-Path $PSScriptRoot 'lib\Checks.ps1')
+. (Join-Path $PSScriptRoot 'lib\Grouping.ps1')
 
 $cfg = Import-AuditConfig -Path $Config
 if (-not $SiteUrl) { $SiteUrl = $cfg.DefaultSiteUrl }
@@ -98,7 +99,8 @@ try {
     $uniqueSet = [System.Collections.Generic.HashSet[string]]::new([StringComparer]::OrdinalIgnoreCase)
     foreach ($r in $results) { foreach ($p in @($r.Unique)) { if ($p) { $null = $uniqueSet.Add($p) } } }
     $csvPath = Join-Path $runFolder 'AllFindings.csv'
-    $findings = Invoke-AuditChecks -RawCsv $rawCsv -OutCsv $csvPath -Config $cfg -UniquePermissionPaths $uniqueSet
+    $check = Invoke-AuditChecks -RawCsv $rawCsv -OutCsv $csvPath -Config $cfg -UniquePermissionPaths $uniqueSet
+    $findings = $check.Counts
 
     # Checked-out files per library, for the library findings.
     $checkedOut = @{}
@@ -129,6 +131,49 @@ try {
         })
     }
     $runInfo | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath (Join-Path $runFolder 'run-info.json') -Encoding utf8
+
+    # All problem areas for IT, and summary.json for the report (top 5 only).
+    $areas = @($check.Areas | ForEach-Object { ConvertTo-PublicArea $_ })
+    $areas | Select-Object Library, BreakPoint, FilesAffected, OverWindowsLimit, BlockedBySharePoint, DeepestLocalPath, ExtraLevels, Fix, CharactersSaved, FixedByMove, StillTooLong, FlattenFix, FixedByFlatten, DeepestFile |
+        Export-Csv -LiteralPath (Join-Path $runFolder 'ProblemAreas.csv') -NoTypeInformation -Encoding utf8BOM
+    $overWindows = $findings.DarkRed + $findings.Blocked
+    $summary = [ordered]@{
+        Site             = $SiteUrl
+        SiteTitle        = $web.Title
+        ScanDate         = $started.ToString('yyyy-MM-dd HH:mm')
+        Libraries        = @($libs.Title)
+        Thresholds       = $cfg.Thresholds
+        SyncRootLength   = $cfg.SyncRootLength
+        Headline         = Get-Headline -OverExcel $findings.OverExcel -Places $areas.Count -OverWindows $overWindows
+        Totals           = [ordered]@{
+            FilesScanned        = $findings.Files
+            OverExcel           = $findings.OverExcel
+            OverWindows         = $overWindows
+            BlockedBySharePoint = $findings.Blocked
+            NearExcel           = $findings.Amber
+            DeepestNesting      = $findings.DeepestFolderDepth
+            LongestLocalPath    = $findings.LongestLocalPath
+            ProblemAreas        = $areas.Count
+        }
+        TopAreas         = @($areas | Select-Object -First 5)
+        ChartFolderLevel = $cfg.ChartFolderLevel
+        Bars             = @($check.Bars)
+        OtherFindings    = [ordered]@{
+            ConflictCopies    = $findings.ConflictCopy
+            LikelyDuplicates  = $findings.LikelyDuplicate
+            BadNames          = $findings.BadName
+            JunkFiles         = $findings.Junk
+            LargeFiles        = $findings.LargeFile
+            NamesTooLong      = $findings.NameTooLong
+            RepeatedFolders   = $findings.RepeatedFolder
+            BulkCopyFolders   = $findings.BulkCopyFolders
+            FoldersOver5000   = $findings.TooManyChildren
+            CheckedOutFiles   = $findings.CheckedOut
+            UniquePermissions = $findings.UniquePermissions
+            LibrarySettings   = @($runInfo.Libraries | Where-Object { $_.Notes } | ForEach-Object { [ordered]@{ Library = $_.Title; Notes = $_.Notes } })
+        }
+    }
+    $summary | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath (Join-Path $runFolder 'summary.json') -Encoding utf8
 
     $files = ($results.Stats | Measure-Object Files -Sum).Sum
     $folders = ($results.Stats | Measure-Object Folders -Sum).Sum
@@ -165,8 +210,24 @@ try {
         foreach ($n in $lib.Notes) { Write-Host "  Library '$($lib.Title)': $n" -ForegroundColor Yellow }
     }
     Write-Host ""
-    Write-Host "Results: $csvPath"
-    Write-Host "The report for the team comes in the next phases."
+    Write-Host $summary.Headline -ForegroundColor White
+    if ($areas.Count) {
+        Write-Host ""
+        Write-Host "Top places to fix:" -ForegroundColor Cyan
+        $i = 0
+        foreach ($a in ($areas | Select-Object -First 5)) {
+            $i++
+            Write-Host ("  {0}. {1}  ({2} files, deepest {3} characters)" -f $i, $(if ($a.BreakPoint) { $a.BreakPoint } else { "(top of $($a.Library))" }), $a.FilesAffected, $a.DeepestLocalPath)
+            Write-Host ("     {0}: saves {1} characters, {2} of {3} files drop back under the Excel limit." -f $a.Fix, $a.CharactersSaved, $a.FixedByMove, $a.FilesAffected) -ForegroundColor DarkGray
+            if ($a.StillTooLong -gt 0 -and $a.FlattenFix) {
+                Write-Host ("     Not enough on its own. {0}: {1} of {2} files drop back under." -f $a.FlattenFix, $a.FixedByFlatten, $a.FilesAffected) -ForegroundColor DarkGray
+            }
+        }
+        if ($areas.Count -gt 5) { Write-Host "  ...and $($areas.Count - 5) more in ProblemAreas.csv." }
+    }
+    Write-Host ""
+    Write-Host "Results: $runFolder"
+    Write-Host "The report for the team comes in the next phase."
     $runFolder
 }
 finally {

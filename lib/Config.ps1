@@ -30,6 +30,8 @@ function Import-AuditConfig {
         Thresholds                      = [ordered]@{ Warn = 200; Excel = 218; Windows = 260; SharePoint = 400 }
         MaxRecommendedDepthBelowSection = 3
         LargeFileSizeGB                 = 2
+        FixedFolderLevels               = 4
+        ChartFolderLevel                = 3
     }
 
     foreach ($prop in $raw.PSObject.Properties) {
@@ -94,6 +96,12 @@ function Test-AuditConfig {
 
     if (-not ($Config.MaxRecommendedDepthBelowSection -is [ValueType]) -or [int]$Config.MaxRecommendedDepthBelowSection -lt 1) {
         $problems.Add("MaxRecommendedDepthBelowSection must be a number of 1 or more.")
+    }
+
+    foreach ($name in 'FixedFolderLevels', 'ChartFolderLevel') {
+        if (-not ($Config.$name -is [ValueType]) -or [int]$Config.$name -lt 0 -or [int]$Config.$name -gt 20) {
+            $problems.Add("$name must be a number from 0 to 20.")
+        }
     }
 
     if (-not ($Config.LargeFileSizeGB -is [ValueType]) -or [double]$Config.LargeFileSizeGB -le 0) {

@@ -3,6 +3,7 @@
 
 BeforeAll {
     . (Join-Path $PSScriptRoot '..\lib\Checks.ps1')
+    . (Join-Path $PSScriptRoot '..\lib\Grouping.ps1')
     $th = [ordered]@{ Warn = 200; Excel = 218; Windows = 260; SharePoint = 400 }
 }
 
@@ -70,9 +71,9 @@ Describe 'Invoke-AuditChecks' {
             New-Row 'File' 'B/budget.xlsx' -Size 4242
         )
         $rows | Export-Csv $raw -NoTypeInformation -Encoding utf8BOM
-        $config = [pscustomobject]@{ Thresholds = $th; PcNames = @(); LargeFileSizeGB = 2 }
+        $config = [pscustomobject]@{ Thresholds = $th; PcNames = @(); LargeFileSizeGB = 2; FixedFolderLevels = 4; ChartFolderLevel = 3 }
         $set = [System.Collections.Generic.HashSet[string]]::new([string[]]@('/sites/x/Shared Documents/A/budget.xlsx'))
-        $result = Invoke-AuditChecks -RawCsv $raw -OutCsv $out -Config $config -UniquePermissionPaths $set
+        $result = (Invoke-AuditChecks -RawCsv $raw -OutCsv $out -Config $config -UniquePermissionPaths $set).Counts
         $csv = Import-Csv $out
     }
 
