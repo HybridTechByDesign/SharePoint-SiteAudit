@@ -39,9 +39,18 @@ Describe 'Get-ProblemAreas' {
     }
 
     It 'offers flattening when one move is not enough' {
-        $areas[0].FlattenFix | Should -Match 'Bring the files up out of the 3 folder level'
+        $areas[0].FlattenFix | Should -Be "Bring the files up out of the 3 folder levels inside 'Copy of desktop'"
         # Inner folders here are short (A/B/C), so flattening alone doesn't bring these under 218.
         $areas[0].FixedByFlatten | Should -Be 0
+    }
+
+    It 'says when most files arrived and who added them' {
+        $f1 = New-Red "$fixed/Copied/a.xlsx" 230; $f1 | Add-Member CreatedOn '2024-05-14'; $f1 | Add-Member CreatedBy 'Person One'
+        $f2 = New-Red "$fixed/Copied/b.xlsx" 230; $f2 | Add-Member CreatedOn '2024-05-14'; $f2 | Add-Member CreatedBy 'Person One'
+        $f3 = New-Red "$fixed/Copied/c.xlsx" 230; $f3 | Add-Member CreatedOn '2024-06-01'; $f3 | Add-Member CreatedBy 'Person Two'
+        $a = @(Get-ProblemAreas -RedFiles @($f1, $f2, $f3) -FixedLevels 4)
+        $a[0].AddedOn | Should -Be '2024-05-14'
+        $a[0].AddedBy | Should -Be 'Person One'
     }
 
     It 'uses the file''s own folder when it sits above the fixed levels' {

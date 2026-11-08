@@ -4,7 +4,7 @@ A read-only PowerShell tool that scans one SharePoint Online site and shows, in 
 where folder structures have become too deep and what to move. See [CLAUDE.md](CLAUDE.md) for the
 full brief.
 
-**Status:** phase 4 of 7. It signs in, reads every file and folder, runs the checks, groups the problem files into a few places to fix, and writes the data for the report. The HTML report for the team comes next.
+**Status:** phase 5 of 7. It signs in, reads every file and folder, runs the checks, groups the problem files into a few places to fix, and writes a one-page report for the team. Comparing with the last scan comes next.
 
 The audit never creates, moves, renames, deletes or changes permissions on anything in SharePoint.
 
@@ -24,6 +24,7 @@ The audit never creates, moves, renames, deletes or changes permissions on anyth
    | PC names (optional) | The team's PC names, separated by commas. Press Enter to skip. |
 
 4. Press Enter to scan the remembered site, or paste a different one.
+5. When it's done, say **Y** to open the report.
 
 If the PnP.PowerShell module is missing, the tool offers to install it for you (no admin needed).
 
@@ -33,6 +34,20 @@ git, so client details stay local.
 ## What you get
 
 Each run creates a folder `output\<site>_<yyyyMMdd-HHmm>\` with:
+
+- `Report.html`: the page for the team. One file that opens in any browser, works offline, and can
+  be emailed or printed. It shows:
+  - one sentence saying how big the problem is, and four numbers (files checked, too long for Excel,
+    too long to sync, deepest nesting)
+  - a chart with one bar per client folder, hanging down as far as its longest path, with dashed
+    lines at the Excel and sync limits. Hover a bar for details, click it to see the folders inside.
+    "Show as table" gives the same numbers as a table.
+  - the top 5 places to fix, each with the folder tree, how many files, when they were added, and
+    what to do
+  - four habits that stop it happening again, and the other findings (for IT) folded away
+
+  People's names are left out unless you answer **Y** to "Show who added the files in the report?"
+  (or use `-ShowNames`). To change the wording or colours, edit `report\Report.template.html`.
 
 - `AllFindings.csv`: one row per file and folder (for IT, opens in Excel). The main columns:
 
@@ -71,7 +86,8 @@ Each run creates a folder `output\<site>_<yyyyMMdd-HHmm>\` with:
 
 - `ProblemAreas.csv`: every problem area, biggest first (see below).
 - `summary.json`: the numbers the team report is built from: the headline sentence, the four tiles,
-  the top 5 problem areas, the bar chart data and the other findings. Names of people are not in it.
+  the top 5 problem areas, the bar chart data and the other findings. Names of people are only in it
+  with `-ShowNames`.
 
 At the end of a run, the headline and the top 5 places to fix are shown on screen.
 
@@ -81,7 +97,8 @@ The team doesn't get a list of every long path. Files over the Excel limit are g
 **break point**: the first folder below the fixed structure (Section / Year / Client / Topic), which
 is usually where a copied-in folder tree starts. For each area you get:
 
-- how many files are affected, the deepest path, and how many extra folder levels sit inside it
+- how many files are affected, the deepest path, how many extra folder levels sit inside it, and
+  the day most of the files were added (and by whom, in `ProblemAreas.csv`)
 - the fix: *move the contents of the break point up into its parent*, how many characters that
   saves, and how many files drop back under the Excel limit
 - if that isn't enough: *bring the files up out of the extra folder levels*, and how many files
@@ -100,6 +117,7 @@ asks the tool to slow down, it waits and tries again on its own.
 # or skip the menu:
 .\Invoke-SiteAudit.ps1 -Config .\config\<client>.json
 .\Invoke-SiteAudit.ps1 -Config .\config\<client>.json -SiteUrl "https://<tenant>.sharepoint.com/sites/<site>" -Libraries "Documents","Archive"
+.\Invoke-SiteAudit.ps1 -Config .\config\<client>.json -ShowNames      # include who added the files in the report
 ```
 
 ## Changing a client's settings
@@ -135,7 +153,7 @@ doing it. The audit itself is read-only.
 ## Checks and tests
 
 - `.\tools\Test-ReadOnly.ps1` checks the audit code for any command that could change SharePoint.
-- Config tests use Pester 5 and never connect to SharePoint:
+- Tests use Pester 5 and never connect to SharePoint:
   ```powershell
   Install-Module Pester -MinimumVersion 5.5 -Scope CurrentUser -SkipPublisherCheck
   Invoke-Pester .\tests

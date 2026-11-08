@@ -1,0 +1,365 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Folder depth check</title>
+<!--
+  Template for Report.html. Invoke-SiteAudit.ps1 copies this file and puts the scan results
+  (summary.json) where it says __SUMMARY_JSON__. Everything else is plain HTML, CSS and JavaScript
+  in this one file, so the report opens offline by double-click and can be emailed.
+  To change wording or colours, edit this file. No build step.
+-->
+<style>
+  :root {
+    --surface: #fcfcfb; --card: #ffffff; --ink: #0b0b0b; --ink-2: #52514e; --ink-3: #75746f;
+    --hair: #e1e0d9; --axis: #c3c2b7; --ring: rgba(11,11,11,0.10); --accent: #2a78d6;
+    --good: #0ca30c; --warning: #fab219; --serious: #ec835a; --critical: #d03b3b; --blocked: #8f1f1f;
+    --good-text: #006300;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --surface: #1a1a19; --card: #232321; --ink: #f0efec; --ink-2: #c3c2b7; --ink-3: #9a9992;
+      --hair: #2c2c2a; --axis: #383835; --ring: rgba(255,255,255,0.10); --accent: #3987e5;
+      --blocked: #b84a4a; --good-text: #0ca30c;
+    }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--surface); color: var(--ink);
+         font: 16px/1.5 "Segoe UI", system-ui, -apple-system, Helvetica, Arial, sans-serif; }
+  main { max-width: 1040px; margin: 0 auto; padding: 32px 24px 48px; }
+  h1 { font-size: 15px; font-weight: 600; color: var(--ink-2); margin: 0 0 4px; letter-spacing: .01em; }
+  h2 { font-size: 20px; margin: 40px 0 6px; }
+  .sub { color: var(--ink-2); margin: 0 0 16px; }
+  .headline { font-size: 28px; line-height: 1.3; font-weight: 600; margin: 8px 0 24px; max-width: 30em; }
+  .tiles { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; }
+  .tile { background: var(--card); border: 1px solid var(--ring); border-radius: 10px; padding: 16px; }
+  .tile .num { font-size: 32px; font-weight: 650; line-height: 1.1; font-variant-numeric: tabular-nums; }
+  .tile .lbl { color: var(--ink-2); font-size: 14px; margin-top: 4px; }
+  .card { background: var(--card); border: 1px solid var(--ring); border-radius: 10px; padding: 20px; margin: 12px 0; }
+  .muted { color: var(--ink-3); }
+  .small { font-size: 14px; }
+
+  /* Chart */
+  .chart-head { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 20px; margin-bottom: 8px; }
+  .legend { display: flex; flex-wrap: wrap; gap: 6px 16px; font-size: 13px; color: var(--ink-2); }
+  .legend span::before { content: ""; display: inline-block; width: 10px; height: 10px; border-radius: 2px;
+                         margin-right: 6px; vertical-align: -1px; background: var(--c); }
+  .btn { font: inherit; font-size: 14px; border: 1px solid var(--ring); background: var(--card); color: var(--ink);
+         border-radius: 6px; padding: 4px 12px; cursor: pointer; }
+  .btn:hover { border-color: var(--axis); }
+  .crumb { font-size: 14px; color: var(--ink-2); }
+  .chart-scroll { overflow-x: auto; padding-bottom: 8px; }
+  .chart { position: relative; min-width: 100%; }
+  .bars { position: relative; display: flex; gap: 2px; align-items: flex-start; padding-left: 52px; }
+  .col { flex: 1 0 64px; max-width: 120px; display: flex; flex-direction: column; align-items: center;
+         cursor: pointer; padding: 0 6px; border-radius: 6px; }
+  .col.leaf { cursor: default; }
+  .col:hover, .col:focus-visible { background: var(--hair); outline: none; }
+  .col .sec { font-size: 11px; line-height: 16px; height: 16px; color: var(--ink-3); width: 100%; text-align: center;
+              white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .col .name { font-size: 12px; line-height: 1.25; color: var(--ink-2); height: 30px; -webkit-line-clamp: 2 !important; overflow: hidden; text-align: center;
+               display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; word-break: break-word; }
+  .col .track { position: relative; width: 100%; border-top: 1px solid var(--axis); }
+  .col .bar { width: 22px; margin: 0 auto; background: var(--c); border-radius: 0 0 4px 4px; }
+  .col .val { font-size: 12px; font-variant-numeric: tabular-nums; color: var(--ink); text-align: center; margin-top: 2px; }
+  .ref { position: absolute; left: 52px; right: 0; border-top: 1.5px dashed var(--ink-3); pointer-events: none; }
+  .ref b { position: absolute; left: -52px; top: -9px; width: 48px; text-align: right; font-size: 11px; font-weight: 600; color: var(--ink-2); }
+  .tip { position: fixed; z-index: 10; pointer-events: none; background: var(--card); color: var(--ink);
+         border: 1px solid var(--ring); border-radius: 8px; padding: 8px 10px; font-size: 13px;
+         box-shadow: 0 4px 16px rgba(0,0,0,.12); max-width: 320px; display: none; }
+  .tip .lvl { display: inline-flex; align-items: center; gap: 6px; }
+  .tip .lvl i { width: 10px; height: 10px; border-radius: 2px; background: var(--c); display: inline-block; }
+  table.data { border-collapse: collapse; width: 100%; font-size: 14px; }
+  table.data th, table.data td { text-align: left; padding: 6px 8px; border-bottom: 1px solid var(--hair); }
+  table.data td.n, table.data th.n { text-align: right; font-variant-numeric: tabular-nums; }
+
+  /* Problem areas */
+  .area h3 { margin: 0 0 10px; font-size: 17px; }
+  .tree { font-size: 14px; color: var(--ink-2); margin: 0 0 14px; padding: 0; list-style: none; }
+  .tree li { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .tree li.bp { color: var(--ink); font-weight: 600; }
+  .tree li.bp::after { content: "  \2190  starts here"; font-weight: 400; color: var(--critical); }
+  .facts { display: flex; flex-wrap: wrap; gap: 6px 24px; font-size: 14px; color: var(--ink-2); margin-bottom: 12px; }
+  .facts b { color: var(--ink); font-variant-numeric: tabular-nums; }
+  .action { border-left: 3px solid var(--accent); padding: 8px 12px; background: var(--surface); border-radius: 0 6px 6px 0; }
+  .action p { margin: 0; }
+  .action .then { margin-top: 6px; color: var(--ink-2); font-size: 14px; }
+  .rules { padding-left: 0; list-style: none; counter-reset: r; }
+  .rules li { counter-increment: r; position: relative; padding: 10px 0 10px 44px; border-bottom: 1px solid var(--hair); }
+  .rules li::before { content: counter(r); position: absolute; left: 0; top: 8px; width: 30px; height: 30px; border-radius: 50%;
+                      background: var(--accent); color: #fff; font-weight: 650; text-align: center; line-height: 30px; }
+  .rules b { display: block; }
+  details { background: var(--card); border: 1px solid var(--ring); border-radius: 10px; padding: 12px 20px; }
+  summary { cursor: pointer; font-weight: 600; }
+  .other { columns: 2; padding-left: 18px; }
+  footer { margin-top: 40px; padding-top: 16px; border-top: 1px solid var(--hair); font-size: 13px; color: var(--ink-3); }
+  .good { color: var(--good-text); font-weight: 600; }
+  @media (max-width: 720px) { .tiles { grid-template-columns: repeat(2, 1fr); } .headline { font-size: 22px; } .other { columns: 1; } }
+  @media print { body { background: #fff; } .btn, .tip { display: none !important; } details { display: block; } .card, .tile { break-inside: avoid; } }
+</style>
+</head>
+<body>
+<main>
+  <h1 id="site"></h1>
+  <p class="headline" id="headline"></p>
+
+  <section class="tiles" aria-label="Key numbers">
+    <div class="tile"><div class="num" id="t-files"></div><div class="lbl">files checked</div></div>
+    <div class="tile"><div class="num" id="t-excel"></div><div class="lbl">too long for Excel</div></div>
+    <div class="tile"><div class="num" id="t-sync"></div><div class="lbl">too long to sync</div></div>
+    <div class="tile"><div class="num" id="t-depth"></div><div class="lbl">folders deep, at the deepest</div></div>
+  </section>
+
+  <section id="chart-section">
+    <h2>How deep each folder goes</h2>
+    <p class="sub">Each bar hangs down as far as the longest file path in that folder. Past the first dashed line, Excel can't open the file. Past the second, OneDrive can't sync it. Click a bar to see what's inside.</p>
+    <div class="card">
+      <div class="chart-head">
+        <button class="btn" id="back" hidden>&larr; Back</button>
+        <span class="crumb" id="crumb"></span>
+        <span style="flex:1"></span>
+        <div class="legend" id="legend"></div>
+        <button class="btn" id="toggle-table" aria-pressed="false">Show as table</button>
+      </div>
+      <div class="chart-scroll"><div class="chart" id="chart"></div></div>
+      <div id="chart-table" hidden></div>
+    </div>
+  </section>
+
+  <section id="areas-section">
+    <h2 id="areas-title">Where to start</h2>
+    <p class="sub" id="areas-sub"></p>
+    <div id="areas"></div>
+  </section>
+
+  <section>
+    <h2>How to avoid this</h2>
+    <p class="sub">This isn't a fault in SharePoint or OneDrive. It happens when whole folder trees are copied in. These four habits keep it from coming back.</p>
+    <ol class="rules card">
+      <li><b>Bring files, not folder trees.</b>When you get files from another team, copy the files you need into our folder. Don't drag their whole folder structure across.</li>
+      <li><b>Skip the desktop step.</b>Upload straight into SharePoint in the browser, or ask for a shared link. Saving to the desktop first and then moving it all in is where deep folders come from.</li>
+      <li><b>Don't repeat the client name.</b>The client folder already says who it's for. Leave the client name out of sub-folder and file names.</li>
+      <li><b>No more than <span id="maxdepth">3</span> folder levels below the section folder.</b>If you need a fourth level, it's usually a sign that something was copied in as a whole tree.</li>
+    </ol>
+  </section>
+
+  <section>
+    <h2>Other findings</h2>
+    <details>
+      <summary>Show the other things the check found (for IT)</summary>
+      <ul class="other" id="other"></ul>
+      <div id="libnotes"></div>
+      <p class="muted small">Full details for every file are in AllFindings.csv and ProblemAreas.csv, next to this report.</p>
+    </details>
+  </section>
+
+  <footer id="footer"></footer>
+</main>
+<div class="tip" id="tip" role="tooltip"></div>
+
+<script>
+// The scan results. Invoke-SiteAudit.ps1 replaces the placeholder below with summary.json.
+const DATA = /*__SUMMARY_JSON__*/null;
+
+(function () {
+  const $ = (id) => document.getElementById(id);
+  const fmt = (n) => Number(n || 0).toLocaleString('en');
+  const el = (tag, cls, text) => { const e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; };
+  const plural = (n, one, many) => `${fmt(n)} ${n === 1 ? one : many}`;
+
+  if (!DATA) { $('headline').textContent = 'No scan data in this file.'; return; }
+  const th = DATA.Thresholds;
+
+  // Levels, matching the CSV's Level column. Colour always comes with a label.
+  const LEVELS = [
+    { key: 'Green', label: 'Fine', color: 'var(--good)', test: (n) => n < th.Warn },
+    { key: 'Amber', label: 'Close to the Excel limit', color: 'var(--warning)', test: (n) => n <= th.Excel },
+    { key: 'Red', label: "Excel can't open it", color: 'var(--serious)', test: (n) => n <= th.Windows },
+    { key: 'DarkRed', label: 'Most Windows apps fail', color: 'var(--critical)', test: (n) => n <= th.SharePoint },
+    { key: 'Blocked', label: 'Too long to sync', color: 'var(--blocked)', test: () => true },
+  ];
+  const levelOf = (n) => LEVELS.find((l) => l.test(n));
+
+  // ---- Header, headline, tiles ----
+  document.title = `Folder depth check: ${DATA.SiteTitle}`;
+  $('site').textContent = `Folder depth check · ${DATA.SiteTitle} · ${DATA.ScanDate}`;
+  $('headline').textContent = DATA.Headline;
+  const T = DATA.Totals;
+  $('t-files').textContent = fmt(T.FilesScanned);
+  $('t-excel').textContent = fmt(T.OverExcel);
+  $('t-sync').textContent = fmt(T.BlockedBySharePoint);
+  $('t-depth').textContent = fmt(T.DeepestNesting);
+  $('maxdepth').textContent = DATA.MaxRecommendedDepthBelowSection || 3;
+
+  // ---- Hanging bar chart with drill-down ----
+  const chart = $('chart'), tip = $('tip');
+  const BAR_AREA = 300;                      // pixels for the longest bar
+  const legend = $('legend');
+  LEVELS.forEach((l) => { const s = el('span', null, l.label); s.style.setProperty('--c', l.color); legend.appendChild(s); });
+
+  let view = null;                           // null = top level, else the bar whose children are shown
+  function render() {
+    const items = view ? view.Children : DATA.Bars;
+    $('back').hidden = !view;
+    $('crumb').textContent = view ? `Inside ${view.Label}` : (DATA.Bars.length ? `One bar per folder at level ${DATA.ChartFolderLevel}` : '');
+    chart.innerHTML = '';
+    if (!items || !items.length) { chart.appendChild(el('p', 'muted', 'No files to show here.')); renderTable([]); return; }
+
+    const max = Math.max(th.SharePoint + 20, ...items.map((b) => b.Longest));
+    const scale = (n) => Math.round((n / max) * BAR_AREA);
+    const bars = el('div', 'bars');
+    items.forEach((b) => {
+      const lvl = levelOf(b.Longest);
+      const col = el('div', 'col' + (view || !b.Children || !b.Children.length ? ' leaf' : ''));
+      col.tabIndex = 0;
+      col.setAttribute('role', view || !b.Children || !b.Children.length ? 'img' : 'button');
+      // Short name under the bar (the client folder), full path in the tooltip.
+      const full = view ? `${view.Label}/${b.Name}` : b.Label;
+      const name = view ? b.Name : (b.Path ? b.Path.split('/').pop() : b.Label);
+      col.setAttribute('aria-label', `${name}: longest path ${b.Longest} characters, ${lvl.label}. ${b.OverExcel} files too long for Excel.`);
+      // The section (first folder) above the name, so two clients with the same name can be told apart.
+      const segs = (!view && b.Path) ? b.Path.split('/') : [];
+      col.appendChild(el('div', 'sec', segs.length > 1 ? segs[0] : '')).title = full;
+      col.appendChild(el('div', 'name', name)).title = full;
+      const track = el('div', 'track'); track.style.height = (BAR_AREA + 4) + 'px';
+      const bar = el('div', 'bar'); bar.style.height = Math.max(2, scale(b.Longest)) + 'px'; bar.style.setProperty('--c', lvl.color);
+      track.appendChild(bar);
+      track.appendChild(el('div', 'val', fmt(b.Longest)));
+      col.appendChild(track);
+      const show = (x, y) => {
+        tip.innerHTML = '';
+        tip.appendChild(el('div', null, full)).style.fontWeight = '600';
+        const l = el('div', 'lvl'); const i = el('i'); i.style.setProperty('--c', lvl.color); l.append(i, el('span', null, `${lvl.label}: longest path ${b.Longest} characters`)); tip.appendChild(l);
+        tip.appendChild(el('div', null, b.OverExcel ? `${plural(b.OverExcel, 'file', 'files')} too long for Excel, out of ${fmt(b.Files)}` : `All ${fmt(b.Files)} files open in Excel`));
+        if (!view && b.Children && b.Children.length) tip.appendChild(el('div', 'muted', 'Click to see what’s inside'));
+        tip.style.display = 'block';
+        const r = tip.getBoundingClientRect();
+        tip.style.left = Math.min(x + 14, window.innerWidth - r.width - 8) + 'px';
+        tip.style.top = Math.min(y + 14, window.innerHeight - r.height - 8) + 'px';
+      };
+      col.addEventListener('mousemove', (e) => show(e.clientX, e.clientY));
+      col.addEventListener('mouseleave', () => (tip.style.display = 'none'));
+      col.addEventListener('focus', () => { const r = col.getBoundingClientRect(); show(r.right, r.top); });
+      col.addEventListener('blur', () => (tip.style.display = 'none'));
+      const open = () => { if (!view && b.Children && b.Children.length) { view = b; tip.style.display = 'none'; render(); } };
+      col.addEventListener('click', open);
+      col.addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); open(); } });
+      bars.appendChild(col);
+    });
+    chart.appendChild(bars);
+
+    // Dashed reference lines at the Excel and sync limits. 46px = label row height.
+    [[th.Excel, 'Excel'], [th.SharePoint, 'Sync']].forEach(([n, label]) => {
+      const ref = el('div', 'ref'); ref.style.top = (46 + 1 + scale(n)) + 'px';
+      const b = el('b', null, `${label} ${n}`); ref.appendChild(b); chart.appendChild(ref);
+    });
+    renderTable(items);
+  }
+
+  function renderTable(items) {
+    const wrap = $('chart-table'); wrap.innerHTML = '';
+    const t = el('table', 'data'); const head = t.createTHead().insertRow();
+    ['Folder', 'Longest path', 'Level', 'Too long for Excel', 'Files'].forEach((h, i) => { const c = el('th', i && i !== 2 ? 'n' : null, h); head.appendChild(c); });
+    const body = t.createTBody();
+    items.forEach((b) => {
+      const r = body.insertRow();
+      [view ? b.Name : b.Label, fmt(b.Longest), levelOf(b.Longest).label, fmt(b.OverExcel), fmt(b.Files)].forEach((v, i) => { const c = r.insertCell(); c.textContent = v; if (i && i !== 2) c.className = 'n'; });
+    });
+    wrap.appendChild(t);
+  }
+
+  $('back').addEventListener('click', () => { view = null; render(); });
+  $('toggle-table').addEventListener('click', (e) => {
+    const on = e.currentTarget.getAttribute('aria-pressed') !== 'true';
+    e.currentTarget.setAttribute('aria-pressed', on); e.currentTarget.textContent = on ? 'Show as chart' : 'Show as table';
+    $('chart-table').hidden = !on; document.querySelector('.chart-scroll').hidden = on;
+  });
+  render();
+
+  // ---- Top problem areas ----
+  const areas = DATA.TopAreas || [];
+  if (!areas.length) {
+    $('areas-title').textContent = 'Nothing to fix right now';
+    $('areas-sub').innerHTML = '';
+    $('areas-sub').appendChild(el('span', 'good', 'Every file is short enough for Excel and OneDrive.'));
+  } else {
+    $('areas-sub').textContent = T.ProblemAreas > areas.length
+      ? `These ${areas.length} places hold most of the problem. Fixing them first makes the biggest difference. The other ${T.ProblemAreas - areas.length} are listed for IT in ProblemAreas.csv.`
+      : (areas.length === 1 ? 'This is the one place to fix.' : `These are the ${areas.length} places to fix, biggest first.`);
+    areas.forEach((a, i) => {
+      const card = el('article', 'card area');
+      card.appendChild(el('h3', null, `${i + 1}. ${a.BreakPointName || 'Top of the ' + a.Library + ' library'}`));
+      // Short breadcrumb tree down to the break point.
+      const tree = el('ul', 'tree');
+      const segs = [a.Library].concat(a.Segments || []);
+      const shown = segs.length > 6 ? [segs[0], '…'].concat(segs.slice(-4)) : segs;
+      shown.forEach((s, k) => {
+        const li = el('li', k === shown.length - 1 && a.BreakPointName ? 'bp' : null, s);
+        li.style.paddingLeft = (k * 18) + 'px';
+        li.textContent = (k ? '└ ' : '') + s; li.title = s;
+        tree.appendChild(li);
+      });
+      card.appendChild(tree);
+      const facts = el('div', 'facts');
+      const fact = (label, value) => { const s = el('span', null, label + ' '); s.appendChild(el('b', null, value)); facts.appendChild(s); };
+      fact('Files affected:', fmt(a.FilesAffected));
+      fact('Longest path:', `${a.DeepestLocalPath} characters`);
+      if (a.ExtraLevels) fact('Folder levels inside:', fmt(a.ExtraLevels));
+      if (a.AddedOn) fact('Added:', a.AddedOn + (a.AddedBy ? ` by ${a.AddedBy}` : ''));
+      card.appendChild(facts);
+      const act = el('div', 'action');
+      act.appendChild(el('p', null, `What to do: ${a.Fix}.`)).style.fontWeight = '600';
+      if (a.CharactersSaved) {
+        act.appendChild(el('p', 'then', a.FixedByMove === a.FilesAffected
+          ? `That makes every path ${a.CharactersSaved} characters shorter, and all ${plural(a.FilesAffected, 'file', 'files')} open in Excel again.`
+          : a.FixedByMove === 0
+            ? `That makes every path ${a.CharactersSaved} characters shorter, but that isn't enough on its own.`
+            : `That makes every path ${a.CharactersSaved} characters shorter, so ${fmt(a.FixedByMove)} of the ${plural(a.FilesAffected, 'file', 'files')} open in Excel again.`));
+      }
+      if (a.StillTooLong > 0 && a.FlattenFix) {
+        const verb = a.FixedByMove === 0 ? 'Then' : 'To fix the rest';
+        const lower = a.FlattenFix.charAt(0).toLowerCase() + a.FlattenFix.slice(1);
+        act.appendChild(el('p', 'then', a.FixedByFlatten >= a.FilesAffected
+          ? `${verb}: ${lower}. After that, every file in here opens in Excel.`
+          : `${verb}: ${lower}, and shorten the longest file names.`));
+      }
+      card.appendChild(act);
+      $('areas').appendChild(card);
+    });
+  }
+
+  // ---- Other findings ----
+  const O = DATA.OtherFindings || {};
+  const other = [
+    [O.ConflictCopies, 'conflict copies (a PC name added to the file name)'],
+    [O.LikelyDuplicates, 'files that look like duplicates (same name and size elsewhere)'],
+    [O.RepeatedFolders, 'items under a repeated folder name'],
+    [O.BulkCopyFolders, 'folders that look like whole trees copied in at once'],
+    [O.BadNames, 'names Windows or OneDrive dislike'],
+    [O.JunkFiles, 'junk files (temp files, Thumbs.db, desktop.ini, .pst)'],
+    [O.LargeFiles, 'very large files'],
+    [O.NamesTooLong, 'names over 255 characters'],
+    [O.FoldersOver5000, 'folders with over 5,000 items inside'],
+    [O.CheckedOutFiles, 'checked-out files'],
+    [O.UniquePermissions, 'items with their own permissions'],
+  ];
+  other.forEach(([n, label]) => { const li = el('li', null, `${fmt(n)} ${label}`); if (!n) li.className = 'muted'; $('other').appendChild(li); });
+  (O.LibrarySettings || []).forEach((l) => {
+    const p = el('p', 'small'); p.appendChild(el('b', null, `Library “${l.Library}”: `)); p.appendChild(document.createTextNode(l.Notes.join('. ') + '.'));
+    $('libnotes').appendChild(p);
+  });
+
+  // ---- Footer ----
+  const f = $('footer');
+  f.appendChild(el('div', null, `Checked ${DATA.ScanDate} · ${DATA.Site}`));
+  f.appendChild(el('div', null, `Libraries: ${(DATA.Libraries || []).join(', ')}`));
+  if (DATA.Comparison) {
+    const c = DATA.Comparison;
+    f.appendChild(el('div', null, `Last check (${c.PreviousScanDate}): ${fmt(c.PreviousOverExcel)} files too long for Excel → now: ${fmt(T.OverExcel)}`));
+  }
+  f.appendChild(el('div', null, `Path lengths are estimated for a synced PC (${DATA.SyncRootLength} characters for the sync folder). This check only reads; nothing was changed.`));
+})();
+</script>
+</body>
+</html>

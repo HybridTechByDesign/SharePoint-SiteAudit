@@ -36,7 +36,10 @@ param(
     [string[]] $Libraries,
 
     # Where run folders are created. Default: .\output next to this script.
-    [string] $OutputRoot = (Join-Path $PSScriptRoot 'output')
+    [string] $OutputRoot = (Join-Path $PSScriptRoot 'output'),
+
+    # Show who added the files in the report. Off by default: the report is about folders, not people.
+    [switch] $ShowNames
 )
 
 Set-StrictMode -Version 3
@@ -47,6 +50,7 @@ $ErrorActionPreference = 'Stop'
 . (Join-Path $PSScriptRoot 'lib\Scanner.ps1')
 . (Join-Path $PSScriptRoot 'lib\Checks.ps1')
 . (Join-Path $PSScriptRoot 'lib\Grouping.ps1')
+. (Join-Path $PSScriptRoot 'lib\Report.ps1')
 
 $cfg = Import-AuditConfig -Path $Config
 if (-not $SiteUrl) { $SiteUrl = $cfg.DefaultSiteUrl }
@@ -134,9 +138,11 @@ try {
 
     # All problem areas for IT, and summary.json for the report (top 5 only).
     $areas = @($check.Areas | ForEach-Object { ConvertTo-PublicArea $_ })
-    $areas | Select-Object Library, BreakPoint, FilesAffected, OverWindowsLimit, BlockedBySharePoint, DeepestLocalPath, ExtraLevels, Fix, CharactersSaved, FixedByMove, StillTooLong, FlattenFix, FixedByFlatten, DeepestFile |
+    $areas | Select-Object Library, BreakPoint, FilesAffected, OverWindowsLimit, BlockedBySharePoint, DeepestLocalPath, ExtraLevels, Fix, CharactersSaved, FixedByMove, StillTooLong, FlattenFix, FixedByFlatten, AddedOn, AddedBy, DeepestFile |
         Export-Csv -LiteralPath (Join-Path $runFolder 'ProblemAreas.csv') -NoTypeInformation -Encoding utf8BOM
     $overWindows = $findings.DarkRed + $findings.Blocked
+    $topAreas = @($areas | Select-Object -First 5)
+    if (-not $ShowNames) { $topAreas = @(Hide-AreaNames $topAreas) }
     $summary = [ordered]@{
         Site             = $SiteUrl
         SiteTitle        = $web.Title
@@ -155,7 +161,8 @@ try {
             LongestLocalPath    = $findings.LongestLocalPath
             ProblemAreas        = $areas.Count
         }
-        TopAreas         = @($areas | Select-Object -First 5)
+        TopAreas         = $topAreas
+        MaxRecommendedDepthBelowSection = $cfg.MaxRecommendedDepthBelowSection
         ChartFolderLevel = $cfg.ChartFolderLevel
         Bars             = @($check.Bars)
         OtherFindings    = [ordered]@{
@@ -174,6 +181,7 @@ try {
         }
     }
     $summary | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath (Join-Path $runFolder 'summary.json') -Encoding utf8
+    $reportPath = Export-AuditReport -Summary $summary -OutFile (Join-Path $runFolder 'Report.html')
 
     $files = ($results.Stats | Measure-Object Files -Sum).Sum
     $folders = ($results.Stats | Measure-Object Folders -Sum).Sum
@@ -226,8 +234,8 @@ try {
         if ($areas.Count -gt 5) { Write-Host "  ...and $($areas.Count - 5) more in ProblemAreas.csv." }
     }
     Write-Host ""
-    Write-Host "Results: $runFolder"
-    Write-Host "The report for the team comes in the next phase."
+    Write-Host "Report for the team: $reportPath" -ForegroundColor Green
+    Write-Host "All results: $runFolder"
     $runFolder
 }
 finally {
