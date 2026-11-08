@@ -1,10 +1,10 @@
 # Reads every file and folder in a library and works out path lengths.
-# Read-only: the only SharePoint command used here is Get-PnPListItem.
+# Read-only: only Get-PnPListItem, Get-PnPField and GET requests (Invoke-PnPSPRestMethod -Method Get) are used.
 
 # Columns asked for from SharePoint. Asking only for these keeps each page small and fast.
 $script:ScanFields = @(
     'FileRef', 'FileLeafRef', 'FSObjType', 'File_x0020_Size',
-    'Created', 'Modified', 'Author', 'Editor', 'ItemChildCount', 'FolderChildCount'
+    'Created', 'Modified', 'Author', 'Editor', 'ItemChildCount', 'FolderChildCount', 'CheckoutUser'
 )
 
 # Items per page. Paging is what lets libraries far above 5,000 items be read without
@@ -67,6 +67,7 @@ function ConvertTo-AuditRow {
         CreatedBy        = Get-FieldText $Item['Author']
         Modified         = Format-ScanDate $Item['Modified']
         ModifiedBy       = Get-FieldText $Item['Editor']
+        CheckedOutTo     = Get-FieldText $Item['CheckoutUser']
     }
 }
 
@@ -161,4 +162,61 @@ function Join-CsvFiles {
         }
     }
     finally { $writer.Dispose() }
+}
+
+function Invoke-WithThrottleRetry {
+    # Runs a SharePoint read; if SharePoint asks us to slow down, waits and tries again.
+    param([scriptblock] $Action, [int[]] $RetryWaitSeconds = @(10, 30, 120, 300))
+    $attempt = 0
+    while ($true) {
+        try { return & $Action }
+        catch {
+            if (-not (Test-IsThrottled $_) -or $attempt -ge $RetryWaitSeconds.Count) { throw }
+            $wait = $RetryWaitSeconds[$attempt]; $attempt++
+            Write-Warning "SharePoint asked us to slow down. Waiting $wait seconds."
+            Start-Sleep -Seconds $wait
+        }
+    }
+}
+
+function Get-RequiredColumns {
+    # Columns users must fill in before a file is complete. These stop new files from syncing.
+    param([Parameter(Mandatory)] $Library)
+    $skip = 'FileLeafRef', 'ContentType'
+    try {
+        $fields = Invoke-WithThrottleRetry { Get-PnPField -List $Library.Id -ErrorAction Stop }
+        @($fields | Where-Object { $_.Required -and -not $_.Hidden -and -not $_.ReadOnlyField -and $_.InternalName -notin $skip } |
+            ForEach-Object { $_.Title })
+    }
+    catch {
+        Write-Warning "Couldn't read the columns of '$($Library.Title)': $($_.Exception.Message)"
+        $null
+    }
+}
+
+function Get-UniquePermissionPaths {
+    # Paths of items in a library that have their own permissions (not inherited).
+    # Uses GET requests only, 5,000 items per page, which works on libraries of any size.
+    # Returns $null if SharePoint refuses (shown as "unknown" in the summary).
+    param([Parameter(Mandatory)] $Library)
+    $paths = [System.Collections.Generic.List[string]]::new()
+    $url = "/_api/web/lists(guid'$($Library.Id)')/items?`$select=FileRef,HasUniqueRoleAssignments&`$top=5000"
+    try {
+        while ($url) {
+            $page = Invoke-WithThrottleRetry { Invoke-PnPSPRestMethod -Method Get -Url $url -ErrorAction Stop }
+            foreach ($item in @($page.value)) {
+                if ($item.HasUniqueRoleAssignments) { $paths.Add([string]$item.FileRef) }
+            }
+            $next = $null
+            foreach ($name in 'odata.nextLink', '@odata.nextLink', '__next') {
+                if ($page.PSObject.Properties[$name] -and $page.$name) { $next = [string]$page.$name; break }
+            }
+            $url = $next
+        }
+        , $paths.ToArray()
+    }
+    catch {
+        Write-Warning "Couldn't check permissions in '$($Library.Title)': $($_.Exception.Message)"
+        $null
+    }
 }

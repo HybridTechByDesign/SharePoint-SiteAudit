@@ -3,9 +3,10 @@
     Read-only audit of one SharePoint Online site: finds folder structures that have become too deep.
 
 .DESCRIPTION
-    Current (phase 2): loads the tenant config, signs in, lists the document libraries, reads every
-    file and folder, and writes AllFindings.csv with path lengths, depth, size, dates and people.
-    Later phases add the checks, grouping and the HTML report.
+    Current (phase 3): loads the tenant config, signs in, lists the document libraries, reads every
+    file and folder, runs the checks, and writes AllFindings.csv (one row per item, with a column per
+    check) and run-info.json (totals and library findings). Later phases add the grouping and the
+    HTML report.
 
     Results go to .\output\<site>_<yyyyMMdd-HHmm>\. The script returns that folder path.
 
@@ -44,6 +45,7 @@ $ErrorActionPreference = 'Stop'
 . (Join-Path $PSScriptRoot 'lib\Config.ps1')
 . (Join-Path $PSScriptRoot 'lib\Connection.ps1')
 . (Join-Path $PSScriptRoot 'lib\Scanner.ps1')
+. (Join-Path $PSScriptRoot 'lib\Checks.ps1')
 
 $cfg = Import-AuditConfig -Path $Config
 if (-not $SiteUrl) { $SiteUrl = $cfg.DefaultSiteUrl }
@@ -83,11 +85,25 @@ try {
         $part = Join-Path $partsFolder ('{0}.csv' -f ($lib.Id))
         $stats = Invoke-LibraryScan -Library $lib -SyncRootLength $cfg.SyncRootLength -OutFile $part
         Write-Host ("  {0:N0} files, {1:N0} folders. Longest local path: {2} characters." -f $stats.Files, $stats.Folders, $stats.LongestLocalPath)
-        [pscustomobject]@{ Library = $lib; Stats = $stats; Part = $part }
+        Write-Host "  Checking library settings and permissions..."
+        $required = Get-RequiredColumns -Library $lib
+        $unique = Get-UniquePermissionPaths -Library $lib
+        [pscustomobject]@{ Library = $lib; Stats = $stats; Part = $part; Required = $required; Unique = $unique }
     }
 
+    Write-Host ""
+    Write-Host "Running the checks..."
+    $rawCsv = Join-Path $partsFolder 'raw.csv'
+    Join-CsvFiles -Parts $results.Part -OutFile $rawCsv
+    $uniqueSet = [System.Collections.Generic.HashSet[string]]::new([StringComparer]::OrdinalIgnoreCase)
+    foreach ($r in $results) { foreach ($p in @($r.Unique)) { if ($p) { $null = $uniqueSet.Add($p) } } }
     $csvPath = Join-Path $runFolder 'AllFindings.csv'
-    Join-CsvFiles -Parts $results.Part -OutFile $csvPath
+    $findings = Invoke-AuditChecks -RawCsv $rawCsv -OutCsv $csvPath -Config $cfg -UniquePermissionPaths $uniqueSet
+
+    # Checked-out files per library, for the library findings.
+    $checkedOut = @{}
+    Import-Csv -LiteralPath $csvPath | Where-Object CheckedOutTo | ForEach-Object { $checkedOut[$_.Library] = 1 + [int]$checkedOut[$_.Library] }
+
     Get-ChildItem -LiteralPath $partsFolder -Filter *.csv | ForEach-Object { [System.IO.File]::Delete($_.FullName) }
     [System.IO.Directory]::Delete($partsFolder)
 
@@ -98,18 +114,18 @@ try {
         ScanStarted     = $started.ToString('yyyy-MM-dd HH:mm:ss')
         ScanFinished    = (Get-Date).ToString('yyyy-MM-dd HH:mm:ss')
         SyncRootLength  = $cfg.SyncRootLength
+        Thresholds      = $cfg.Thresholds
+        Findings        = $findings
         Libraries       = @($results | ForEach-Object {
+            $uniqueCount = if ($null -eq $_.Unique) { 'unknown' } else { @($_.Unique).Count }
+            $lf = Get-LibraryFindings -Library $_.Library -Stats $_.Stats -RequiredColumns $_.Required -UniqueCount $uniqueCount -CheckedOut ([int]$checkedOut[$_.Library.Title])
             [ordered]@{
-                Title           = $_.Library.Title
-                UrlName         = $_.Library.UrlName
-                Items           = $_.Stats.Items
-                Files           = $_.Stats.Files
-                Folders         = $_.Stats.Folders
+                Title            = $_.Library.Title
+                UrlName          = $_.Library.UrlName
+                Files            = $_.Stats.Files
+                Folders          = $_.Stats.Folders
                 LongestLocalPath = $_.Stats.LongestLocalPath
-                RequireCheckOut = $_.Library.RequireCheckOut
-                ContentApproval = $_.Library.ContentApproval
-                OfflineSyncOff  = $_.Library.OfflineSyncOff
-            }
+            } + $lf
         })
     }
     $runInfo | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath (Join-Path $runFolder 'run-info.json') -Encoding utf8
@@ -122,8 +138,35 @@ try {
         Write-Host ("Longest estimated local path: {0} characters, in '{1}':" -f $longest.LongestLocalPath, $longest.Library)
         Write-Host "  $($longest.LongestPath)" -ForegroundColor DarkGray
     }
+    Write-Host ""
+    Write-Host "What the checks found:" -ForegroundColor Cyan
+    $th = $cfg.Thresholds
+    $lines = @(
+        ,@($findings.OverExcel, "files are over the Excel limit ($($th.Excel) characters)")
+        ,@(($findings.DarkRed + $findings.Blocked), "of those are also over the Windows limit ($($th.Windows))")
+        ,@($findings.Blocked, "files have a SharePoint path over $($th.SharePoint) and can't sync")
+        ,@($findings.Amber, "files are close to the Excel limit")
+        ,@($findings.RepeatedFolder, "items sit under a repeated folder name (e.g. X\X)")
+        ,@($findings.BulkCopyFolders, "folders look like whole folder trees copied in at once")
+        ,@($findings.ConflictCopy, "conflict copies (name ending in a PC name)")
+        ,@($findings.LikelyDuplicate, "files look like duplicates (same name and size elsewhere)")
+        ,@($findings.BadName, "items have names Windows or OneDrive dislike")
+        ,@($findings.Junk, "junk files (temp files, Thumbs.db, desktop.ini, .pst)")
+        ,@($findings.LargeFile, "files over $($cfg.LargeFileSizeGB) GB")
+        ,@($findings.NameTooLong, "names over 255 characters")
+        ,@($findings.TooManyChildren, "folders with over 5,000 items directly inside")
+        ,@($findings.CheckedOut, "files are checked out")
+        ,@($findings.UniquePermissions, "items have their own permissions")
+    )
+    foreach ($l in $lines) { if ($l[0] -gt 0) { Write-Host ("  {0,7:N0}  {1}" -f $l[0], $l[1]) } }
+    if (-not ($lines | Where-Object { $_[0] -gt 0 })) { Write-Host "  Nothing to report." -ForegroundColor Green }
+    Write-Host ("  Deepest folder nesting: {0} levels." -f $findings.DeepestFolderDepth)
+    foreach ($lib in $runInfo.Libraries) {
+        foreach ($n in $lib.Notes) { Write-Host "  Library '$($lib.Title)': $n" -ForegroundColor Yellow }
+    }
+    Write-Host ""
     Write-Host "Results: $csvPath"
-    Write-Host "The checks and the report for the team come in the next phases."
+    Write-Host "The report for the team comes in the next phases."
     $runFolder
 }
 finally {
