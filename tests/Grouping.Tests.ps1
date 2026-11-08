@@ -49,6 +49,20 @@ Describe 'Get-ProblemAreas' {
         $a[0].BreakPoint | Should -Be 'AuditTest/416/long'
     }
 
+    It 'works with one folder level above the break point, under strict mode like the real run' {
+        # The audit runs with Set-StrictMode -Version 3, where a one-item list that PowerShell
+        # unwrapped into a plain string has no .Count. FixedLevels 1 or a file in a top-level folder hit this.
+        Set-StrictMode -Version 3
+        try {
+            $a = Get-ProblemAreas -RedFiles @(New-Red 'AuditTest/Copied/A/f.xlsx' 300) -FixedLevels 1
+            $a[0].BreakPoint | Should -Be 'AuditTest/Copied'
+            $a[0].Fix | Should -Be "Move the contents of 'Copied' up into 'AuditTest'"
+            $b = Get-ProblemAreas -RedFiles @(New-Red 'Top/f.xlsx' 300) -FixedLevels 4
+            $b[0].Fix | Should -Be "Move the contents of 'Top' up into the top of the 'Documents' library"
+        }
+        finally { Set-StrictMode -Off }
+    }
+
     It 'handles no over-limit files' {
         @(Get-ProblemAreas -RedFiles @() -FixedLevels 4).Count | Should -Be 0
     }
