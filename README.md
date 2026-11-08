@@ -4,7 +4,7 @@ A read-only PowerShell tool that scans one SharePoint Online site and shows, in 
 where folder structures have become too deep and what to move. See [CLAUDE.md](CLAUDE.md) for the
 full brief.
 
-**Status:** phase 2 of 7. It signs in, reads every file and folder, and writes a CSV with path lengths. The checks, grouping and the team report come next.
+**Status:** phase 3 of 7. It signs in, reads every file and folder, runs the checks, and writes a CSV for IT. Grouping the problems and the report for the team come next.
 
 The audit never creates, moves, renames, deletes or changes permissions on anything in SharePoint.
 
@@ -44,8 +44,31 @@ Each run creates a folder `output\<site>_<yyyyMMdd-HHmm>\` with:
   | `FolderDepth` | How many folders deep the item is inside the library |
   | `SizeBytes`, `Created`, `CreatedBy`, `Modified`, `ModifiedBy` | As shown in SharePoint |
   | `DirectChildren` | For folders: how many files and folders sit directly inside |
+  | `CheckedOutTo` | Who has the file checked out, if anyone |
 
-- `run-info.json`: when the scan ran, and the totals per library.
+  Check columns (blank means fine). Filter `Issues` in Excel to see everything flagged on a row.
+
+  | Column | Meaning |
+  |---|---|
+  | `Level` | `Green` under 200 · `Amber` 200 to 218 (close to the Excel limit) · `Red` over 218 (Excel can't open or save) · `DarkRed` over 260 (most Windows apps fail) · `Blocked` SharePoint path over 400 (won't sync) |
+  | `Issues` | Everything flagged on this row, separated by `;` |
+  | `NameTooLong` | A single name over 255 characters |
+  | `RepeatedFolder` | The same or nearly the same folder name twice in the path, e.g. `Projects / Projects 2024` |
+  | `ConflictCopyOf` | The file name ends in one of the PC names from setup (a OneDrive conflict copy) |
+  | `LikelyDuplicates` | How many files have this same name and size across the site |
+  | `BadName` | Leading or trailing space, ends with a dot, reserved name (CON, PRN, AUX, NUL, COM1-9, LPT1-9), or `_vti_` |
+  | `JunkFile` | `~$` temp files, Thumbs.db, desktop.ini, .tmp, .pst |
+  | `LargeFile` | Over the size set in the config (default 2 GB) |
+  | `BulkCopyFolder` | The top folder of a tree that was copied in at once: 50 or more items created the same day by the same person who created the folder |
+  | `SubtreeItems` | For folders: all items below it |
+  | `TooManyInFolder` / `HugeSubtree` | Folder has over 5,000 items directly inside / over 100,000 below it |
+  | `UniquePermissions` | The item has its own permissions instead of inheriting them |
+
+- `run-info.json`: when the scan ran, the totals for each check, and per library: item count against
+  the 300,000 sync limit, settings that break sync (Require Check Out, content approval, offline sync
+  off, required columns), checked-out files, and items with their own permissions.
+
+At the end of a run, a short summary of what was found is shown on screen.
 
 Big libraries are read 2,000 items at a time, so libraries well above 5,000 items work. If SharePoint
 asks the tool to slow down, it waits and tries again on its own.
